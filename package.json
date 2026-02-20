@@ -2,7 +2,8 @@
   "name": "pdf-server",
   "type": "module",
   "scripts": {
-    "start": "node pdf-server.js"
+    "start": "node pdf-server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "cors": "^2.8.5",
