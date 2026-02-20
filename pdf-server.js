@@ -8,7 +8,7 @@ const app = express();
    CONFIG
    ========================================================= */
 
-const PORT = 5052;
+const PORT = process.env.PORT || 5052;
 const HEADER_HEIGHT = 80;
 
 let browser; // reuse browser instance
