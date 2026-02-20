@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "start": "node pdf-server.js",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install --with-deps chromium"
   },
   "dependencies": {
     "cors": "^2.8.5",
