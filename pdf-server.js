@@ -1,5 +1,5 @@
 import express from "express";
-import { chromium } from "playwright";
+import puppeteer from "puppeteer";
 import cors from "cors";
 
 const app = express();
@@ -9,21 +9,23 @@ const app = express();
    ========================================================= */
 
 const PORT = 5052;
-const HEADER_HEIGHT = 80; // adjust if header size changes
+const HEADER_HEIGHT = 80;
 
 /* =========================================================
    MIDDLEWARE
    ========================================================= */
 
-app.use(cors({
-    origin: "http://localhost:5173",
-    credentials: true
-}));
+app.use(
+    cors({
+        origin: "http://localhost:5173",
+        credentials: true,
+    })
+);
 
 app.use(express.json());
 
 app.get("/", (req, res) => {
-    res.send("PDF server running (Playwright) ✅");
+    res.send("PDF server running (Puppeteer) ✅");
 });
 
 /* =========================================================
@@ -43,11 +45,17 @@ app.post("/api/generate-pdf", async (req, res) => {
         console.log("Generating PDF for:", url);
 
         /* ===============================
-           Launch Browser
+           Launch Browser (Render Safe)
         =============================== */
 
-        browser = await chromium.launch({
-            headless: true
+        browser = await puppeteer.launch({
+            headless: "new",
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
         });
 
         const page = await browser.newPage();
@@ -57,12 +65,12 @@ app.post("/api/generate-pdf", async (req, res) => {
         =============================== */
 
         await page.goto(url, {
-            waitUntil: "networkidle",
-            timeout: 60000
+            waitUntil: "networkidle0",
+            timeout: 60000,
         });
 
         // wait for fonts/images
-        await page.waitForTimeout(2000);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         /* ===============================
            Generate PDF
@@ -73,7 +81,6 @@ app.post("/api/generate-pdf", async (req, res) => {
             printBackground: true,
             displayHeaderFooter: true,
 
-            /* ---------- HEADER ---------- */
             headerTemplate: `
         <div style="
           width:100%;
@@ -84,12 +91,11 @@ app.post("/api/generate-pdf", async (req, res) => {
           font-family: Arial, sans-serif;
         ">
           <div style="font-size:14px; font-weight:bold;">
-            Proposal code: ${proposalCode} - ${clientName}
+            Proposal code: ${proposalCode || ""} - ${clientName || ""}
           </div>
         </div>
       `,
 
-            /* ---------- FOOTER ---------- */
             footerTemplate: `
         <div style="
           width:100%;
@@ -97,18 +103,17 @@ app.post("/api/generate-pdf", async (req, res) => {
           text-align:center;
           padding:5px;
         ">
-          Page <span class="pageNumber"></span> of 
+          Page <span class="pageNumber"></span> of
           <span class="totalPages"></span>
         </div>
       `,
 
-            /* ---------- IMPORTANT ---------- */
             margin: {
                 top: `${HEADER_HEIGHT}px`,
                 bottom: "20px",
                 left: "20px",
-                right: "20px"
-            }
+                right: "20px",
+            },
         });
 
         /* ===============================
@@ -122,11 +127,9 @@ app.post("/api/generate-pdf", async (req, res) => {
         );
 
         res.send(pdf);
-
     } catch (err) {
         console.error("PDF generation error:", err);
         res.status(500).json({ error: "PDF generation failed" });
-
     } finally {
         if (browser) await browser.close();
     }
