@@ -11,6 +11,30 @@ const app = express();
 const PORT = 5052;
 const HEADER_HEIGHT = 80;
 
+let browser; // reuse browser instance
+
+/* =========================================================
+   LAUNCH BROWSER ON START (faster + stable)
+   ========================================================= */
+
+(async () => {
+    try {
+        browser = await puppeteer.launch({
+            headless: "new",
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        });
+
+        console.log("✅ Puppeteer browser launched");
+    } catch (err) {
+        console.error("❌ Failed to launch browser:", err);
+    }
+})();
+
 /* =========================================================
    MIDDLEWARE
    ========================================================= */
@@ -33,7 +57,7 @@ app.get("/", (req, res) => {
    ========================================================= */
 
 app.post("/api/generate-pdf", async (req, res) => {
-    let browser;
+    let page;
 
     try {
         const { url, proposalCode, clientName } = req.body;
@@ -42,23 +66,17 @@ app.post("/api/generate-pdf", async (req, res) => {
             return res.status(400).json({ error: "URL required" });
         }
 
+        if (!browser) {
+            return res.status(500).json({ error: "Browser not ready" });
+        }
+
         console.log("Generating PDF for:", url);
 
         /* ===============================
-           Launch Browser (Render Safe)
+           Create Page
         =============================== */
 
-        browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        });
-
-        const page = await browser.newPage();
+        page = await browser.newPage();
 
         /* ===============================
            Load Page
@@ -68,6 +86,10 @@ app.post("/api/generate-pdf", async (req, res) => {
             waitUntil: "networkidle0",
             timeout: 60000,
         });
+
+        // ensure page fully rendered
+        await page.waitForSelector("body");
+        await page.emulateMediaType("print");
 
         // wait for fonts/images
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -81,6 +103,7 @@ app.post("/api/generate-pdf", async (req, res) => {
             printBackground: true,
             displayHeaderFooter: true,
 
+            /* ---------- HEADER ---------- */
             headerTemplate: `
         <div style="
           width:100%;
@@ -96,6 +119,7 @@ app.post("/api/generate-pdf", async (req, res) => {
         </div>
       `,
 
+            /* ---------- FOOTER ---------- */
             footerTemplate: `
         <div style="
           width:100%;
@@ -116,22 +140,28 @@ app.post("/api/generate-pdf", async (req, res) => {
             },
         });
 
+        console.log("PDF size:", pdf.length);
+
+        if (!pdf || pdf.length === 0) {
+            throw new Error("Generated PDF is empty");
+        }
+
         /* ===============================
-           Send PDF
+           Send PDF (CORRECT WAY)
         =============================== */
 
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader(
-            "Content-Disposition",
-            "attachment; filename=proposal.pdf"
-        );
+        res.set({
+            "Content-Type": "application/pdf",
+            "Content-Disposition": "attachment; filename=proposal.pdf",
+            "Content-Length": pdf.length,
+        });
 
-        res.send(pdf);
+        res.end(pdf); // prevents corruption
     } catch (err) {
         console.error("PDF generation error:", err);
         res.status(500).json({ error: "PDF generation failed" });
     } finally {
-        if (browser) await browser.close();
+        if (page) await page.close();
     }
 });
 
